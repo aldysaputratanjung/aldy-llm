@@ -1,105 +1,103 @@
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
+/**
+ * LLM Chat Application Template
+ *
+ * A simple chat application using Cloudflare Workers AI.
+ * This template demonstrates how to implement an LLM-powered chat interface with
+ * streaming responses using Server-Sent Events (SSE).
+ *
+ * @license MIT
+ */
+import { Env, ChatMessage } from "./types";
 
-    // Serve static assets
-    if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
-      if (env.ASSETS) return env.ASSETS.fetch(request);
-      return new Response("Hello World!", { status: 200 });
-    }
+// Model ID for Workers AI model
+// https://developers.cloudflare.com/workers-ai/models/
+const MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-        },
-      });
-    }
-
-    // Chat API
-    if (url.pathname === "/api/chat" && request.method === "POST") {
-      return handleChatRequest(request, env);
-    }
-
-    return new Response("Not found", { status: 404 });
-  },
-};
-
-const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
+// Default system prompt
 const SYSTEM_PROMPT =
   "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 
-async function handleChatRequest(request, env) {
-  try {
-    const { messages = [] } = await request.json();
+export default {
+  /**
+   * Main request handler for the Worker
+   */
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
+    const url = new URL(request.url);
 
-    if (!messages.some((m) => m.role === "system")) {
+    // Handle static assets (frontend)
+    if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
+      return env.ASSETS.fetch(request);
+    }
+
+    // API Routes
+    if (url.pathname === "/api/chat") {
+      // Handle POST requests for chat
+      if (request.method === "POST") {
+        return handleChatRequest(request, env);
+      }
+
+      // Method not allowed for other request types
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    // Handle 404 for unmatched routes
+    return new Response("Not found", { status: 404 });
+  },
+} satisfies ExportedHandler<Env>;
+
+/**
+ * Handles chat API requests
+ */
+async function handleChatRequest(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  try {
+    // Parse JSON request body
+    const { messages = [] } = (await request.json()) as {
+      messages: ChatMessage[];
+    };
+
+    // Add system prompt if not present
+    if (!messages.some((msg) => msg.role === "system")) {
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
-    const aiResponse = await env.AI.run(MODEL_ID, {
-      messages,
-      max_tokens: 2048,
-      options: {
-        gateway_id: "aldy-llm",
-        cache_ttl: 3600,
-        raw: true,
+export interface Env {
+  AI: Ai;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await env.AI.run(
+      "@cf/meta/llama-3.1-8b-instruct",
+      {
+        prompt: "Why should you use Cloudflare for your AI inference?",
       },
-    });
-
-    if (!aiResponse.ok) {
-      let errorBody;
-      try {
-        errorBody = await aiResponse.clone().json();
-      } catch {
-        errorBody = await aiResponse.text();
-      }
-
-      console.error("AI Gateway Error:", aiResponse.status, errorBody);
-
-      const errMsg = JSON.stringify(errorBody);
-      if (
-        aiResponse.status >= 400 &&
-        aiResponse.status < 500 &&
-        (errMsg.includes("Guardrail") ||
-          errMsg.includes("blocked") ||
-          errMsg.includes("Policy"))
-      ) {
-        console.warn("[AI-Gateway][DLP] Sensitive data blocked by policy.");
-        return Response.json(
-          {
-            response:
-              "🚫 Pesan Anda diblokir. Terdeteksi adanya pelanggaran kebijakan Data Loss Prevention (DLP).",
-            error_code: "DLP_BLOCKED",
-            gateway_status: aiResponse.status,
-          },
-          { status: 403 },
-        );
-      }
-    }
-
-    return aiResponse;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("Chat error:", message);
-
-    if (message.includes("Guardrail") || message.includes("Policy")) {
-      return Response.json(
-        {
-          response:
-            "🚫 Pesan Anda diblokir. Terdeteksi adanya pelanggaran kebijakan Data Loss Prevention (DLP).",
-          error_code: "DLP_BLOCKED",
+      {
+        gateway: {
+          id: "aldy-llm"
         },
-        { status: 403 },
-      );
-    }
+      },
+    );
+    return new Response(JSON.stringify(response));
+  },
+} satisfies ExportedHandler<Env>;
 
-    return Response.json(
-      { error: "Gagal memproses permintaan LLM: Error internal" },
-      { status: 500 },
+    // Return streaming response
+    return response;
+  } catch (error) {
+    console.error("Error processing chat request:", error);
+    return new Response(
+      JSON.stringify({ error: "Failed to process request" }),
+      {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      },
     );
   }
 }
