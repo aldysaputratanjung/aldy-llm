@@ -67,10 +67,8 @@ async function handleChatRequest(
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
     const response = await env.AI.run(
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/meta/llama-3.1-8b-instruct",
       {
         prompt: "Why should you use Cloudflare for your AI inference?",
       },
@@ -80,10 +78,6 @@ export default {
         },
       },
     );
-    return new Response(JSON.stringify(response));
-  },
-} satisfies ExportedHandler<Env>;
-
     // Return streaming response
     return response;
   } catch (error) {
