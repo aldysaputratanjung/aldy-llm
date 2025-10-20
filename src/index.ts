@@ -74,18 +74,12 @@ async function handleChatRequest(
         max_tokens: 1024,
       },
       {
-        returnRawResponse: true,
-        // Uncomment to use AI Gateway
-         gateway: {
-           id: "aldy-llm", // Replace with your AI Gateway ID
-        //   skipCache: false,      // Set to true to bypass cache
-        //   cacheTtl: 3600,        // Cache time-to-live in seconds
-         },
+        gateway: {
+          id: "aldy-llm"
+        },
       },
     );
-
-    // Return streaming response
-    return response;
+    return new Response(JSON.stringify(response));
   } catch (error) {
     console.error("Error processing chat request:", error);
     return new Response(
