@@ -87,7 +87,7 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
   } catch (error) {
     console.error("Error processing chat request:", error);
     return new Response(
-      JSON.stringify({ error: "Failed to process request" }),
+      JSON.stringify({ error: "YEE KOCAK MALAH SHARE INFORMASI SENSITIVE" }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },
