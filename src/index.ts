@@ -1,32 +1,21 @@
 /**
- * LLM Chat Application Template with DLP Handling
- *
- * This Worker handles chat requests through Cloudflare Workers AI + AI Gateway
- * with DLP (Data Loss Prevention) detection enabled.
+ * Cloudflare AI Chat Worker with DLP Custom Response (Stable)
  */
 
 import { Env, ChatMessage } from "./types";
 
-// Model ID untuk Workers AI
 const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
-
-// Default system prompt
 const SYSTEM_PROMPT =
   "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 
-/**
- * Worker entrypoint
- */
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Serve static assets
     if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
       return env.ASSETS.fetch(request);
     }
 
-    // API endpoint
     if (url.pathname === "/api/chat" && request.method === "POST") {
       return handleChatRequest(request, env);
     }
@@ -35,59 +24,54 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-/**
- * Handle Chat Request (POST /api/chat)
- */
 async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
     const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
 
-    // Tambahkan system prompt jika belum ada
     if (!messages.some((msg) => msg.role === "system")) {
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
-    // Jalankan AI model via AI Gateway
+    // 🔹 Panggil model dengan AI Gateway
     const aiResponse = await env.AI.run(
       MODEL_ID,
       { messages, max_tokens: 1024 },
       {
-        returnRawResponse: true,
         gateway: {
-          id: "aldy-llm", // Pastikan ini sama persis dengan Gateway ID di dashboard
-          // cacheTtl: 86400,
+          id: "aldy-llm", // pastikan sama dengan ID di AI Gateway
         },
       },
     );
 
-    // Clone response untuk pengecekan DLP
+    // 🔹 Clone respons untuk analisis error (tanpa merusak stream utama)
     const cloned = aiResponse.clone();
-    let json: any;
-    try {
-      json = await cloned.json();
-    } catch {
-      json = null; // Response bukan JSON (streaming case)
-    }
+    const text = await cloned.text();
 
-    // ✅ Jika DLP terdeteksi di response JSON
-    if (json && json.error && json.error.includes("Sensitive")) {
-      console.warn("[DLP] Sensitive data detected — blocked by policy.");
+    // 🔍 Deteksi pesan error DLP atau gateway default error
+    if (
+      text.includes("policy") ||
+      text.includes("blocked") ||
+      text.includes("sensitive") ||
+      text.includes("Sorry, there was a problem processing your request")
+    ) {
+      console.warn("[DLP] Request diblokir oleh Data Loss Prevention policy.");
       return new Response(
         JSON.stringify({
-          response: "🚫 Message blocked due to DLP policy.",
+          response: "🚫 Request anda diblokir oleh DLP.",
         }),
         {
+          status: 403,
           headers: { "Content-Type": "application/json" },
         },
       );
     }
 
-    // ✅ Jika tidak ada DLP issue → kirim streaming response normal
+    // ✅ Kalau tidak ada DLP error, kirim response original (stream tetap utuh)
     return aiResponse;
   } catch (error) {
     console.error("Error processing chat request:", error);
     return new Response(
-      JSON.stringify({ error: "Failed to process request" }),
+      JSON.stringify({ error: "Terjadi kesalahan pada server." }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },
