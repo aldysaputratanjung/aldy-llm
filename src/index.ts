@@ -11,7 +11,7 @@ import { Env, ChatMessage } from "./types";
 
 // Model ID for Workers AI model
 // https://developers.cloudflare.com/workers-ai/models/
-const MODEL_ID = "@cf/meta/llama-guard-3-8b";
+const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
 
 // Default system prompt
 const SYSTEM_PROMPT =
@@ -76,11 +76,11 @@ async function handleChatRequest(
       {
         returnRawResponse: true,
         // Uncomment to use AI Gateway
-         gateway: {
-           id: "aldy-llm", // Replace with your AI Gateway ID
-           skipCache: true,      // Set to true to bypass cache
+        // gateway: {
+        //   id: "YOUR_GATEWAY_ID", // Replace with your AI Gateway ID
+        //   skipCache: false,      // Set to true to bypass cache
         //   cacheTtl: 3600,        // Cache time-to-live in seconds
-         },
+        // },
       },
     );
 
