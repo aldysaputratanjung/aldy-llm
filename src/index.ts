@@ -35,7 +35,6 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
     // 🔹 Panggil model dengan AI Gateway
     const aiResponse = await env.AI.run(
       MODEL_ID,
-      { messages, max_tokens: 1024 },
       {
         gateway: {
           id: "aldy-llm", // pastikan sama dengan ID di AI Gateway
