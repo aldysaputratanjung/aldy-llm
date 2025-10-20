@@ -64,12 +64,12 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
     // 1. Jalankan AI model via AI Gateway
     const aiResponse = await env.AI.run(
       MODEL_ID,
-      { messages, max_tokens: 1024 },
+      { messages, max_tokens: 2048 },
       {
         returnRawResponse: true,
         gateway: {
           id: "aldy-llm", // Pastikan ini sama persis
-          cacheTtl: 86400,
+          cacheTtl: 3600,
         },
       },
     );
