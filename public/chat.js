@@ -1,142 +1,120 @@
-/**
- * LLM Chat App Frontend
- *
- * Handles the chat UI interactions and communication with the backend API.
- */
-
 // DOM elements
 const chatMessages = document.getElementById("chat-messages");
 const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-button");
 const typingIndicator = document.getElementById("typing-indicator");
 
-// Chat state
+// State
 let chatHistory = [
   {
     role: "assistant",
     content:
-      "Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can I help you today?",
+      "Hello! 👋 I'm your Cloudflare AI assistant. How can I help you today?",
   },
 ];
 let isProcessing = false;
 
-// Auto-resize textarea as user types
+// Auto resize textarea
 userInput.addEventListener("input", function () {
   this.style.height = "auto";
   this.style.height = this.scrollHeight + "px";
 });
 
-// Send message on Enter (without Shift)
-userInput.addEventListener("keydown", function (e) {
+// Handle Enter key
+userInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
 });
 
-// Send button click handler
+// Send button click
 sendButton.addEventListener("click", sendMessage);
 
-/**
- * Sends a message to the chat API and processes the response
- */
 async function sendMessage() {
   const message = userInput.value.trim();
+  if (!message || isProcessing) return;
 
-  // Don't send empty messages
-  if (message === "" || isProcessing) return;
-
-  // Disable input while processing
   isProcessing = true;
   userInput.disabled = true;
   sendButton.disabled = true;
 
-  // Add user message to chat
+  // 1. Tambahkan pesan user ke UI
   addMessageToChat("user", message);
-
-  // Clear input
   userInput.value = "";
   userInput.style.height = "auto";
-
-  // Show typing indicator
   typingIndicator.classList.add("visible");
-
-  // Add message to history
   chatHistory.push({ role: "user", content: message });
 
   try {
-    // Create new assistant response element
+    // 2. Siapkan elemen pesan asisten kosong
     const assistantMessageEl = document.createElement("div");
     assistantMessageEl.className = "message assistant-message";
-    assistantMessageEl.innerHTML = "<p></p>";
+    // Tidak perlu innerHTML = "<p></p>", kita akan langsung mengisi textContent
+    assistantMessageEl.textContent = ""; 
     chatMessages.appendChild(assistantMessageEl);
+    scrollToBottom();
 
-    // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    // Send request to API
+    // 3. Panggil Worker API
     const response = await fetch("/api/chat", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messages: chatHistory,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: chatHistory }),
     });
 
-    // Handle errors
-    if (!response.ok) {
-      throw new Error("Failed to get response");
-    }
+    if (!response.ok) throw new Error("Failed to get response");
 
-    // Process streaming response
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let responseText = "";
+    let buffer = ""; // Buffer untuk menangani chunk yang terpotong
 
+    // 4. Proses Stream (Perbaikan SSE ada di sini)
     while (true) {
       const { done, value } = await reader.read();
+      if (done) break;
 
-      if (done) {
-        break;
-      }
-
-      // Decode chunk
       const chunk = decoder.decode(value, { stream: true });
+      buffer += chunk; // Tambahkan data baru ke buffer
 
-      // Process SSE format
-      const lines = chunk.split("\n");
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // Ambil baris terakhir (mungkin terpotong) ke buffer
+
       for (const line of lines) {
-        try {
-          const jsonData = JSON.parse(line);
-          if (jsonData.response) {
-            // Append new content to existing text
-            responseText += jsonData.response;
-            assistantMessageEl.querySelector("p").textContent = responseText;
-
-            // Scroll to bottom
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (line.startsWith("data:")) {
+          const data = line.substring(5).trim(); // Hapus awalan "data:"
+          
+          if (data === "[DONE]") {
+            break; // Selesai
           }
-        } catch (e) {
-          console.error("Error parsing JSON:", e);
+
+          try {
+            const json = JSON.parse(data);
+            
+            // Model Workers AI non-streaming/streaming memiliki properti 'response' atau 'content'
+            // Kita gunakan 'content' yang ada di log Anda, atau fallback ke 'response'
+            const content = json.response || (json.choices && json.choices[0] && json.choices[0].message.content);
+            
+            if (content) {
+              responseText += content;
+              assistantMessageEl.textContent = responseText;
+              scrollToBottom();
+            }
+          } catch (e) {
+            // Abaikan baris yang bukan JSON valid
+          }
         }
       }
     }
-
-    // Add completed response to chat history
+    
+    // 5. Finalisasi dan update history
     chatHistory.push({ role: "assistant", content: responseText });
-  } catch (error) {
-    console.error("Error:", error);
-    addMessageToChat(
-      "assistant",
-      "Sorry, there was an error processing your request.",
-    );
+  } catch (err) {
+    console.error("Error:", err);
+    addMessageToChat("assistant", "⚠️ Sorry, there was a problem processing your request. Check your Worker logs.");
   } finally {
-    // Hide typing indicator
+    // 6. Cleanup
     typingIndicator.classList.remove("visible");
-
-    // Re-enable input
     isProcessing = false;
     userInput.disabled = false;
     sendButton.disabled = false;
@@ -144,15 +122,14 @@ async function sendMessage() {
   }
 }
 
-/**
- * Helper function to add message to chat
- */
 function addMessageToChat(role, content) {
   const messageEl = document.createElement("div");
   messageEl.className = `message ${role}-message`;
-  messageEl.innerHTML = `<p>${content}</p>`;
+  messageEl.textContent = content;
   chatMessages.appendChild(messageEl);
+  scrollToBottom();
+}
 
-  // Scroll to bottom
+function scrollToBottom() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
