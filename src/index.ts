@@ -8,7 +8,7 @@
  */
 
 // Ganti dengan Model Workers AI yang Sesuai dan ada di Gateway Anda
-const MODEL_ID = "@cf/meta/llama-3-8b-instruct"; 
+const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct"; 
 
 // 🚨 GANTI INI DENGAN ID AI GATEWAY ANDA YANG SEBENARNYA 🚨
 const AI_GATEWAY_ID = "aldy-llm"; 
