@@ -55,7 +55,7 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
         returnRawResponse: true,
         gateway: {
           id: "aldy-llm", // Pastikan ini sama persis dengan Gateway ID di dashboard
-          cacheTtl: 86400,
+          // cacheTtl: 86400,
         },
       },
     );
