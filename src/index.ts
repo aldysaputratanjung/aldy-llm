@@ -25,60 +25,33 @@ const SYSTEM_PROMPT =
 
 export default {
 	async fetch(request, env, ctx) {
-		if (request.method !== "POST") {
-			return new Response("Method Not Allowed", { status: 405 });
-		}
+        // ... (Logika POST, ambil messages)
 
 		try {
-			const { messages: history } = await request.json();
-			
-			// Siapkan array messages untuk model
-			// Jika history kosong atau tidak valid, gunakan prompt default
-			const userMessages = Array.isArray(history) ? history : [
-				{ role: "user", content: "Jelaskan Cloudflare Workers dalam satu kalimat." }
-			];
-
-			// Tambahkan SYSTEM_PROMPT di awal array messages
-			const messages = [
-				{ role: "system", content: SYSTEM_PROMPT },
-				...userMessages
-			];
+			// ... (Siapkan array messages)
 
 			// Opsi dan Binding untuk env.AI.run()
 			const options = {
 				messages,
 				max_tokens: 2048,
-				stream: true, // WAJIB untuk streaming
+				// Hapus 'stream: true'
 			};
 
-			// Panggil env.AI.run() dengan konfigurasi AI Gateway
+			// Panggil env.AI.run()
 			const response = await env.AI.run(
 				MODEL_ID,
 				options,
 				{
-					// Konfigurasi AI Gateway
-					gateway: {
-						id: AI_GATEWAY_ID, // ID Gateway AI Anda
-					},
+					gateway: { id: AI_GATEWAY_ID }, 
 				}
 			);
 			
-			// Jika Workers AI mengembalikan Response object,
-			// kita langsung mengembalikannya (karena kita set stream: true)
-			if (response instanceof Response) {
-				return new Response(response.body, {
-					headers: {
-						"Content-Type": "text/event-stream",
-						"Cache-Control": "no-cache",
-						"Connection": "keep-alive",
-					},
-				});
-			}
-
-			// Penanganan jika response tidak berupa stream Response (misalnya, jika stream: false)
-			// Ini biasanya tidak terjadi jika stream: true berhasil.
+            // Karena NON-STREAMING, respon adalah JSON yang berisi properti 'response'
 			const modelResponseText = response.response;
-			return new Response(JSON.stringify({ response: modelResponseText }), {
+
+			return new Response(JSON.stringify({ 
+                response: modelResponseText 
+            }), {
 				headers: { 'Content-Type': 'application/json' },
 			});
 
