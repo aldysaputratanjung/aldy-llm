@@ -70,9 +70,6 @@ async function handleChatRequest(
     const response = await env.AI.run(
       "@cf/meta/llama-3.1-8b-instruct",
       {
-        prompt: "Why should you use Cloudflare for your AI inference?",
-      },
-      {
         gateway: {
           id: "aldy-llm"
         },
