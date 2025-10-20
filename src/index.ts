@@ -53,6 +53,7 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
       {
         returnRawResponse: true,
         gateway: {
+          { messages, max_tokens: 2048 },
           id: "aldy-llm", // Pastikan ini sama persis dengan Gateway ID di dashboard
         },
       },
