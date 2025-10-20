@@ -2,11 +2,9 @@
  * LLM Chat Application Template with DLP Handling
  *
  * This Worker handles chat requests through Cloudflare Workers AI + AI Gateway
- * with DLP (Data Loss Prevention) detection enabled.
  */
 
 // Asumsi tipe dasar untuk Worker
-// Jika Anda menggunakan TypeScript, pastikan file ini adalah index.ts dan Anda memiliki file types.ts
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -33,7 +31,6 @@ export default {
 
     // Serve static assets
     if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
-      // Pastikan ASSETS tersedia atau ubah logika jika tidak menggunakan Cloudflare Pages/Assets
       if (env.ASSETS) {
           return env.ASSETS.fetch(request);
       }
@@ -53,58 +50,86 @@ export default {
 
 /**
  * Handle Chat Request (POST /api/chat)
- * Ini adalah fungsi yang diperbaiki.
+ * Perbaikan utama: Pengecekan Status Code respons dari AI Gateway.
  */
 async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
     const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
 
-    // Tambahkan system prompt jika belum ada
+    // Tambahkan system prompt
     if (!messages.some((msg) => msg.role === "system")) {
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
     // 1. Jalankan AI model via AI Gateway
-    // Jika DLP memblokir permintaan (Request) atau respons (Response), 
-    // baris kode ini akan melempar (throw) error.
     const aiResponse = await env.AI.run(
       MODEL_ID,
       { messages, max_tokens: 1024 },
       {
         returnRawResponse: true,
         gateway: {
-          id: "aldy-llm", // Pastikan ini sama persis dengan Gateway ID di dashboard
-          cacheTtl: 3600,
+          id: "aldy-llm", // Pastikan ini sama persis
+          cacheTtl: 86400,
         },
       },
     );
 
-    // 2. Jika tidak ada DLP issue dan model berhasil dipanggil
+    // 2. Cek Status Response dari AI Gateway
+    // Jika AI Gateway memblokir (DLP), ia mungkin mengembalikan Response 400/403/404,
+    // BUKAN selalu melempar exception.
+    if (!aiResponse.ok) {
+        // Coba baca body response untuk melihat pesan error dari AI Gateway
+        const errorBody = await aiResponse.text();
+        console.error("AI Gateway responded with error status:", aiResponse.status, errorBody);
+
+        // Jika status adalah 400/403/404, dan body mengindikasikan Guardrail/DLP
+        if (aiResponse.status === 400 || aiResponse.status === 403 || aiResponse.status === 404) {
+            // Kita asumsikan status 4xx dari AI Gateway di sini disebabkan oleh DLP/Guardrail
+            // Karena konfigurasi Anda adalah 'Block'.
+            if (errorBody.includes("Guardrail") || errorBody.includes("blocked") || errorBody.includes("Policy")) {
+                console.warn("[DLP] Sensitive data detected and blocked by policy (Status Check).");
+                return new Response(
+                    JSON.stringify({
+                        response: "🚫 Pesan Anda diblokir. Terdeteksi adanya pelanggaran kebijakan Data Loss Prevention (DLP).",
+                        error_code: "DLP_BLOCKED",
+                        gateway_status: aiResponse.status
+                    }),
+                    {
+                        status: 403,
+                        headers: { "Content-Type": "application/json" },
+                    },
+                );
+            }
+            // Jika error 4xx tapi bukan DLP/Guardrail, lempar sebagai error internal
+            throw new Error(`AI Gateway Error (${aiResponse.status}): ${errorBody}`);
+        }
+    }
+
+    // 3. Jika response OK (Status Code 200)
     return aiResponse;
 
   } catch (error) {
-    // 3. Blok Catch: Menangkap error, termasuk error pemblokiran DLP/Guardrail
+    // 4. Blok Catch: Menangkap exception murni (jika env.AI.run() melempar daripada mengembalikan Response 4xx)
     
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Error processing chat request:", errorMessage);
+    console.error("Error processing chat request (CATCH):", errorMessage);
 
-    // Deteksi jika error disebabkan oleh pemblokiran oleh AI Gateway
-    // Pesan error dari AI Gateway biasanya akan berisi kata kunci seperti "Guardrail" atau "blocked"
+    // Deteksi jika exception disebabkan oleh pemblokiran
     if (errorMessage.includes("Guardrail") || errorMessage.includes("blocked") || errorMessage.includes("Policy")) {
-        console.warn("[DLP] Sensitive data detected and blocked by policy.");
+        console.warn("[DLP] Sensitive data detected and blocked by policy (Catch Block).");
         return new Response(
             JSON.stringify({
-                response: "🚫 Pesan Anda diblokir. Terdeteksi adanya pelanggaran kebijakan Data Loss Prevention (DLP) pada Request atau Response.",
+                response: "🚫 Pesan Anda diblokir. Terdeteksi adanya pelanggaran kebijakan Data Loss Prevention (DLP).",
                 error_code: "DLP_BLOCKED",
             }),
             {
-                status: 403, // Status 403 Forbidden lebih sesuai untuk pemblokiran keamanan
+                status: 403,
                 headers: { "Content-Type": "application/json" },
             },
         );
     }
     
-    // Default error handling untuk error lainnya
+    // Default error handling
     return new Response(
       JSON.stringify({ error: "Gagal memproses permintaan LLM: Error internal" }),
       {
