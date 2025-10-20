@@ -1,85 +1,109 @@
 /**
- * LLM Chat Application Template (NON-STREAMING)
- * * Menggunakan AI Gateway Binding yang benar agar fitur Caching, Rate Limiting,
- * dan DLP (Data Loss Prevention) di AI Gateway berfungsi.
- * Fitur streaming (SSE) DINONAKTIFKAN.
+ * LLM Chat Application Template
+ *
+ * A simple chat application using Cloudflare Workers AI.
+ * This template demonstrates how to implement an LLM-powered chat interface with
+ * streaming responses using Server-Sent Events (SSE).
  *
  * @license MIT
  */
+import { Env, ChatMessage } from "./types";
 
-// Ganti dengan Model Workers AI yang Sesuai dan ada di Gateway Anda
-const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct"; 
+// Model ID for Workers AI model
+// https://developers.cloudflare.com/workers-ai/models/
+const MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-// 🚨 GANTI INI DENGAN ID AI GATEWAY ANDA YANG SEBENARNYA 🚨
-const AI_GATEWAY_ID = "aldy-llm"; 
-
+// Default system prompt
 const SYSTEM_PROMPT =
-	"You are a helpful, friendly assistant. Provide concise and accurate responses.";
-
-// Hapus import untuk Env dan ChatMessage jika Anda hanya menggunakan JavaScript murni.
+  "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 
 export default {
-	/**
-     * @param {Request} request
-     * @param {Env} env
-     * @param {ExecutionContext} ctx
-     * @returns {Promise<Response>}
-     */
-	async fetch(request, env, ctx) {
-		if (request.method !== "POST") {
-			return new Response("Method Not Allowed", { status: 405 });
-		}
+    async fetch(request, env, ctx) {
+        // Ambil prompt dari request body (contoh sederhana)
+        const requestBody = await request.json();
+        const userPrompt = requestBody.prompt || "Jelaskan Cloudflare Workers dalam satu kalimat.";
 
-		try {
-			// Harapkan array 'messages' dari frontend, bukan hanya 'prompt'
-			const { messages: history } = await request.json();
-			
-			// Siapkan array messages untuk model
-			let messages = Array.isArray(history) ? history : [];
-
-			// Tambahkan SYSTEM_PROMPT di awal jika belum ada
-			if (!messages.some((msg) => msg.role === "system")) {
-				messages.unshift({ role: "system", content: SYSTEM_PROMPT });
-			}
-			
-			// Fallback jika tidak ada pesan user
-			if (messages.length === 1 && messages[0].role === "system") {
-				messages.push({ role: "user", content: "Jelaskan Cloudflare Workers." });
-			}
-
-			// Opsi Model (NON-STREAMING)
-			const modelOptions = {
-				messages,
-				max_tokens: 2048,
-				// stream: false, // Tidak perlu ditulis karena default-nya sudah false
-			};
-
-			// Panggil env.AI.run() dengan 3 ARGUMEN YANG BENAR
-			const response = await env.AI.run(
-				MODEL_ID, // Argumen 1: Model ID
-				modelOptions, // Argumen 2: Opsi Model
-				{
-					// Argumen 3: Opsi Tambahan (Termasuk konfigurasi AI Gateway)
-					gateway: {
-						id: AI_GATEWAY_ID, 
+        try {
+            // Panggil env.AI.run() dan sertakan objek 'gateway'
+            // Ganti "my-ai-gateway" dengan ID Gateway AI Anda
+            const response = await env.AI.run(
+                MODEL_ID, // Model Workers AI yang Anda gunakan
+				    {
+						messages,
+						max_tokens: 2048,
 					},
-				}
-			);
-			
-            // Karena NON-STREAMING, respons adalah objek JSON dengan properti 'response'
-			const modelResponseText = response.response;
+                {
+                    prompt: userPrompt,
+                },
+                {
+                    // Konfigurasi AI Gateway
+                    gateway: {
+                        id: "my-ai-gateway", // Ganti dengan ID AI Gateway Anda
+                    },
+                }
+            );
 
-			return new Response(JSON.stringify({
-				// Anda bisa mengembalikan seluruh respons atau hanya teksnya
-				response: modelResponseText
-			}), {
-				headers: { 'Content-Type': 'application/json' },
-			});
+            // Respon dari model (biasanya berisi properti 'response')
+            const modelResponseText = response.response;
 
-		} catch (e) {
-			console.error("Error processing chat request:", e);
-			// Ini akan menangkap error, termasuk jika DLP memblokir permintaan
-			return new Response(`AI Gateway/Model Error: ${e.message}`, { status: 500 });
-		}
-	},
-};
+            return new Response(JSON.stringify({
+                prompt: userPrompt,
+                response: modelResponseText
+            }), {
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+        } catch (e) {
+            return new Response(`Error: ${e.message}`, { status: 500 });
+        }
+    }
+}; satisfies ExportedHandler<Env>;
+
+/**
+ * Handles chat API requests
+ */
+async function handleChatRequest(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  try {
+    // Parse JSON request body
+    const { messages = [] } = (await request.json()) as {
+      messages: ChatMessage[];
+    };
+
+    // Add system prompt if not present
+    if (!messages.some((msg) => msg.role === "system")) {
+      messages.unshift({ role: "system", content: SYSTEM_PROMPT });
+    }
+
+    const response = await env.AI.run(
+      MODEL_ID,
+      {
+        messages,
+        max_tokens: 1024,
+      },
+      {
+        returnRawResponse: true,
+        // Uncomment to use AI Gateway
+        // gateway: {
+        //   id: "YOUR_GATEWAY_ID", // Replace with your AI Gateway ID
+        //   skipCache: false,      // Set to true to bypass cache
+        //   cacheTtl: 3600,        // Cache time-to-live in seconds
+        // },
+      },
+    );
+
+    // Return streaming response
+    return response;
+  } catch (error) {
+    console.error("Error processing chat request:", error);
+    return new Response(
+      JSON.stringify({ error: "Failed to process request" }),
+      {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  }
+}
