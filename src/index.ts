@@ -1,98 +1,96 @@
 /**
- * LLM Chat Application Template
+ * LLM Chat Application Template with DLP Handling
  *
- * A simple chat application using Cloudflare Workers AI.
- * This template demonstrates how to implement an LLM-powered chat interface with
- * streaming responses using Server-Sent Events (SSE).
- *
- * @license MIT
+ * This Worker handles chat requests through Cloudflare Workers AI + AI Gateway
+ * with DLP (Data Loss Prevention) detection enabled.
  */
+
 import { Env, ChatMessage } from "./types";
 
-// Model ID for Workers AI model
-// https://developers.cloudflare.com/workers-ai/models/
+// Model ID untuk Workers AI
 const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
 
 // Default system prompt
 const SYSTEM_PROMPT =
   "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 
+/**
+ * Worker entrypoint
+ */
 export default {
-  /**
-   * Main request handler for the Worker
-   */
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext,
-  ): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Handle static assets (frontend)
+    // Serve static assets
     if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
       return env.ASSETS.fetch(request);
     }
 
-    // API Routes
-    if (url.pathname === "/api/chat") {
-      // Handle POST requests for chat
-      if (request.method === "POST") {
-        return handleChatRequest(request, env);
-      }
-
-      // Method not allowed for other request types
-      return new Response("Method not allowed", { status: 405 });
+    // API endpoint
+    if (url.pathname === "/api/chat" && request.method === "POST") {
+      return handleChatRequest(request, env);
     }
 
-    // Handle 404 for unmatched routes
     return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
 
 /**
- * Handles chat API requests
+ * Handle Chat Request (POST /api/chat)
  */
-async function handleChatRequest(
-  request: Request,
-  env: Env,
-): Promise<Response> {
+async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
-    // Parse JSON request body
-    const { messages = [] } = (await request.json()) as {
-      messages: ChatMessage[];
-    };
+    const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
 
-    // Add system prompt if not present
+    // Tambahkan system prompt jika belum ada
     if (!messages.some((msg) => msg.role === "system")) {
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
-    const response = await env.AI.run(
+    // Jalankan AI model via AI Gateway
+    const aiResponse = await env.AI.run(
       MODEL_ID,
-      {
-        messages,
-        max_tokens: 1024,
-      },
+      { messages, max_tokens: 1024 },
       {
         returnRawResponse: true,
-        // Uncomment to use AI Gateway
-         gateway: {
-           id: "aldy-llm", // Replace with your AI Gateway ID
-        //   skipCache: false,      // Set to true to bypass cache
-           cacheTtl: 86400,        // Cache time-to-live in seconds
-         },
+        gateway: {
+          id: "aldy-llm", // Pastikan ini sama persis dengan Gateway ID di dashboard
+          cacheTtl: 86400,
+        },
       },
     );
 
-    // Return streaming response
-    return response;
+    // Clone response untuk pengecekan DLP
+    const cloned = aiResponse.clone();
+    let json: any;
+    try {
+      json = await cloned.json();
+    } catch {
+      json = null; // Response bukan JSON (streaming case)
+    }
+
+    // ✅ Jika DLP terdeteksi di response JSON
+    if (json && json.error && json.error.includes("Sensitive")) {
+      console.warn("[DLP] Sensitive data detected — blocked by policy.");
+      return new Response(
+        JSON.stringify({
+          response: "🚫 Message blocked due to DLP policy.",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // ✅ Jika tidak ada DLP issue → kirim streaming response normal
+    return aiResponse;
   } catch (error) {
     console.error("Error processing chat request:", error);
     return new Response(
       JSON.stringify({ error: "Failed to process request" }),
       {
         status: 500,
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
       },
     );
   }
