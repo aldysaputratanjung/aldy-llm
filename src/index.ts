@@ -67,10 +67,6 @@ async function handleChatRequest(
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
-export interface Env {
-  AI: Ai;
-}
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const response = await env.AI.run(
