@@ -14,6 +14,13 @@
   "observability": {
     "enabled": true
   },
+  // Add this to your wrangler.jsonc
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "c6b517f2775e4f418148ce5ddb916bd2",
+    }
+  ]
   "ai": {
     "binding": "AI"
   },
