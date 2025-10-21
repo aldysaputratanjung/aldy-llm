@@ -82,6 +82,5 @@ async function handleChatRequest(
         //   cacheTtl: 3600,        // Cache time-to-live in seconds
          },
       },
-	  return new Response(JSON.stringify(response));
     ),
   }satisfies ExportedHandler<Env>;
