@@ -52,35 +52,41 @@ export default {
 /**
  * Handles chat API requests
  */
-async function handleChatRequest(
-  request: Request,
-  env: Env,
-): Promise<Response> {
+async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
-    // Parse JSON request body
-    const { messages = [] } = (await request.json()) as {
-      messages: ChatMessage[];
-    };
+    const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
 
-    // Add system prompt if not present
-    if (!messages.some((msg) => msg.role === "system")) {
-      messages.unshift({ role: "system", content: SYSTEM_PROMPT });
+    // Ambil hanya pesan terakhir dari user
+    const latestUserMessage = messages.filter((msg) => msg.role === "user").pop();
+
+    if (!latestUserMessage) {
+      return new Response(JSON.stringify({ error: "No user input found" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
     }
+
+    // Bangun ulang konteks minimal agar dianggap 'fresh' oleh AI Gateway
+    const newMessages: ChatMessage[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      latestUserMessage,
+    ];
 
     const response = await env.AI.run(
       MODEL_ID,
       {
-        messages,
+        messages: newMessages,
         max_tokens: 1024,
       },
       {
         returnRawResponse: true,
-           gateway: {
-             id: "aldy-llm", // Replace with your AI Gateway ID
-        //   skipCache: false,      // Set to true to bypass cache
-           },
+        gateway: {
+          id: "aldy-llm",
+          skipCache: true, // pastikan Gateway tidak menggunakan konteks cache
+        },
       },
     );
+
     return response;
   } catch (error) {
     console.error("Error processing chat request:", error);
