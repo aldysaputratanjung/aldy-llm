@@ -1,87 +1,91 @@
-/**
- * LLM Chat Application with AI Gateway + DLP
- *
- * This Worker integrates with Cloudflare Workers AI and AI Gateway.
- * It supports DLP scanning and streaming LLM responses.
- *
- * @license MIT
- */
-import { Env, ChatMessage } from "./types";
+// DOM elements
+const chatContainer = document.querySelector("#chat-container");
+const inputField = document.querySelector("#user-input");
+const sendButton = document.querySelector("#send-btn");
 
-const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
-const SYSTEM_PROMPT =
-  "You are a helpful, friendly assistant. Provide concise and accurate responses.";
+let chatHistory = [];
 
-/**
- * Main Worker handler
- */
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
+// Append message bubble to chat
+function appendMessage(role, content) {
+  const messageEl = document.createElement("div");
+  messageEl.classList.add("message", role === "user" ? "user" : "assistant");
+  messageEl.textContent = content;
+  chatContainer.appendChild(messageEl);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
 
-    // Serve frontend assets
-    if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
-      return env.ASSETS.fetch(request);
-    }
+// Update the assistant’s streaming message
+function updateAssistantMessage(content) {
+  let lastMessage = chatContainer.querySelector(".message.assistant:last-child");
+  if (!lastMessage) {
+    appendMessage("assistant", content);
+  } else {
+    lastMessage.textContent = content;
+  }
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
 
-    // Handle chat API
-    if (url.pathname === "/api/chat" && request.method === "POST") {
-      return handleChatRequest(request, env);
-    }
+// Main send handler
+async function sendMessage() {
+  const userInput = inputField.value.trim();
+  if (!userInput) return;
 
-    return new Response("Not found", { status: 404 });
-  },
-} satisfies ExportedHandler<Env>;
+  appendMessage("user", userInput);
+  inputField.value = "";
 
-/**
- * Chat API handler with DLP support via AI Gateway
- */
-async function handleChatRequest(request: Request, env: Env): Promise<Response> {
+  chatHistory.push({ role: "user", content: userInput });
+
   try {
-    const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: chatHistory }),
+    });
 
-    // Ensure system prompt exists
-    if (!messages.some((msg) => msg.role === "system")) {
-      messages.unshift({ role: "system", content: SYSTEM_PROMPT });
+    const contentType = response.headers.get("content-type") || "";
+
+    // 🟡 Handle DLP or gateway error response
+    if (contentType.includes("application/json")) {
+      const json = await response.json();
+      if (json.error?.length) {
+        const errMsg = json.error[0].message || "Unknown AI Gateway error";
+        appendMessage("system", `⚠️ ${errMsg}`);
+        return;
+      }
     }
 
-    // Call Workers AI model through AI Gateway (with DLP enabled)
-    const aiResponse = await env.AI.run(
-      MODEL_ID,
-      {
-        messages,
-        max_tokens: 1024,
-        stream: true,
-      },
-      {
-        returnRawResponse: true,
-        gateway: {
-          id: "aldy-llm", // <-- Ganti dengan Gateway ID milikmu di dashboard AI Gateway
-          skipCache: true,
-        },
-      },
-    );
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let assistantReply = "";
 
-    // Stream back the model response (SSE)
-    const { readable, writable } = new TransformStream();
-    aiResponse.body?.pipeTo(writable);
+      appendMessage("assistant", ""); // create bubble first
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  } catch (err: any) {
-    console.error("AI Gateway or DLP error:", err);
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        done = streamDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          assistantReply += chunk;
+          updateAssistantMessage(assistantReply);
+        }
+      }
 
-    return new Response(
-      JSON.stringify({
-        error: "Failed to process request via AI Gateway.",
-        details: err.message || err,
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+      chatHistory.push({ role: "assistant", content: assistantReply.trim() });
+    } else {
+      appendMessage("system", "⚠️ No response received from AI Gateway.");
+    }
+  } catch (err) {
+    console.error("Chat error:", err);
+    appendMessage("system", `⚠️ Error: ${err.message}`);
   }
 }
+
+// Send on button click
+sendButton.addEventListener("click", sendMessage);
+
+// Send on Enter key
+inputField.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") sendMessage();
+});
