@@ -82,18 +82,6 @@ async function handleChatRequest(
         //   cacheTtl: 3600,        // Cache time-to-live in seconds
          },
       },
-    );
-
-    // Return streaming response
-    return response;
-  } catch (error) {
-    console.error("Error processing chat request:", error);
-    return new Response(
-      JSON.stringify({ error: "Failed to process request" }),
-      {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      },
-    );
-  }
-}
+	  return new Response(JSON.stringify(response));
+    ),
+  }satisfies ExportedHandler<Env>;
