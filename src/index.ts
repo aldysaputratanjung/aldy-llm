@@ -82,7 +82,7 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
         returnRawResponse: true,
         gateway: {
           id: "aldy-llm",
-          skipCache: true, // pastikan Gateway tidak menggunakan konteks cache
+          skipCache: false, // pastikan Gateway tidak menggunakan konteks cache
         },
       },
     );
