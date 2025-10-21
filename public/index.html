@@ -1,3 +1,5 @@
+=== backup ===
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -6,14 +8,13 @@
     <title>Cloudflare AI Chat</title>
     <style>
       :root {
-        --background: #1e1f22;
-        --chat-bg: #2a2b31;
-        --assistant-bg: #2f3136;
-        --user-bg: #3c4043;
+        --primary-color: #1a73e8;
+        --assistant-bg: #2a2b32;
+        --user-bg: #1e8e3e;
+        --background: #202124;
         --text-light: #e8eaed;
         --text-muted: #9aa0a6;
-        --primary-color: #1a73e8;
-        --input-bg: #2a2b31;
+        --border: #3c4043;
       }
 
       * {
@@ -25,60 +26,75 @@
       body {
         font-family: "Segoe UI", Roboto, sans-serif;
         background-color: var(--background);
-        color: var(--text-light);
         display: flex;
         flex-direction: column;
         height: 100vh;
         overflow: hidden;
+        color: var(--text-light);
       }
 
-      /* ===== HEADER ===== */
+      /* Header */
       header {
+        background: linear-gradient(90deg, #1a73e8, #34a853, #fbbc05, #ea4335);
+        background-size: 400% 400%;
+        animation: gradientMove 8s ease infinite;
         display: flex;
         justify-content: space-between;
         align-items: center;
         padding: 0.75rem 1rem;
-        border-bottom: 1px solid #2e2f33;
-        background-color: var(--background);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
       }
 
-      .header-left img {
-        height: 28px;
+      @keyframes gradientMove {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
       }
 
-      .header-right img {
+      .logo {
         height: 36px;
-        border-radius: 50%;
-        object-fit: cover;
       }
 
-      /* ===== CHAT CONTAINER ===== */
+      .header-title {
+        text-align: center;
+        flex: 1;
+        color: white;
+        font-weight: 600;
+      }
+
+      /* Chat Area */
       .chat-container {
         flex: 1;
         display: flex;
         flex-direction: column;
-        padding: 1.5rem 2rem;
+        padding: 1rem;
         overflow: hidden;
       }
 
       .chat-messages {
         flex: 1;
         overflow-y: auto;
+        padding: 1rem 0;
         display: flex;
         flex-direction: column;
-        gap: 1.2rem;
+        gap: 1rem;
         scroll-behavior: smooth;
-        padding-bottom: 1rem;
       }
 
       .message {
-        max-width: 70%;
+        max-width: 75%;
         padding: 0.8rem 1rem;
         border-radius: 1rem;
         line-height: 1.5;
         word-wrap: break-word;
         white-space: pre-wrap;
-        font-size: 0.95rem;
+        animation: fadeIn 0.3s ease;
       }
 
       .assistant-message {
@@ -90,94 +106,124 @@
       .user-message {
         align-self: flex-end;
         background-color: var(--user-bg);
-        color: var(--text-light);
+        color: #fff;
       }
 
-      /* ===== MESSAGE INPUT ===== */
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(5px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
       .message-input {
-        background-color: var(--background);
-        border-top: 1px solid #2e2f33;
-        padding: 1rem 2rem;
+        background: #2c2d33;
+        border-top: 1px solid var(--border);
+        padding: 0.75rem;
         display: flex;
         align-items: center;
-        justify-content: center;
+        gap: 0.5rem;
       }
 
       #user-input {
-        width: 100%;
-        background-color: var(--input-bg);
-        border: 1px solid #3c4043;
-        color: var(--text-light);
-        border-radius: 1.5rem;
-        padding: 0.8rem 1rem;
+        flex: 1;
+        border: none;
+        border-radius: 24px;
+        padding: 0.7rem 1rem;
         font-size: 1rem;
-        resize: none;
+        line-height: 1.4;
         outline: none;
-        height: 46px;
-        transition: border-color 0.2s;
+        color: var(--text-light);
+        background-color: #3c4043;
+        transition: box-shadow 0.2s;
       }
 
       #user-input:focus {
-        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px var(--primary-color);
       }
 
       #send-button {
-        display: none; /* tidak perlu tombol kirim visual */
+        background-color: var(--primary-color);
+        border: none;
+        color: white;
+        border-radius: 50%;
+        width: 42px;
+        height: 42px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.3s, transform 0.1s;
+      }
+
+      #send-button:hover {
+        background-color: #1669c1;
+      }
+
+      #send-button:active {
+        transform: scale(0.95);
+      }
+
+      #send-button:disabled {
+        background-color: #5f6368;
+        cursor: not-allowed;
+      }
+
+      .typing-indicator {
+        font-style: italic;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        margin-left: 0.5rem;
+        display: none;
+      }
+
+      .typing-indicator.visible {
+        display: block;
       }
 
       footer {
         text-align: center;
         font-size: 0.8rem;
         color: var(--text-muted);
-        padding: 0.6rem 0;
-        border-top: 1px solid #2e2f33;
-      }
-
-      /* Scrollbar halus */
-      ::-webkit-scrollbar {
-        width: 8px;
-      }
-      ::-webkit-scrollbar-thumb {
-        background-color: #3c4043;
-        border-radius: 4px;
-      }
-
-      @media (max-width: 768px) {
-        .chat-container {
-          padding: 1rem;
-        }
+        padding: 0.5rem 0;
       }
     </style>
   </head>
 
   <body>
     <header>
-      <div class="header-left">
-        <img src="cf.png" alt="Cloudflare Logo" />
-      </div>
-      <div class="header-right">
-        <img src="ws.png" alt="Westcon Logo" />
-      </div>
+      <img src="cf.png" alt="Cloudflare Logo" class="logo" />
+      <div class="header-title">Hello, My Friends</div>
+      <img src="ws.png" alt="Westcon Logo" class="logo" />
     </header>
 
     <div class="chat-container">
       <div id="chat-messages" class="chat-messages">
         <div class="message assistant-message">
-          ✨ Halo! Ada yang bisa saya bantu hari ini?
+          Hello! 👋 I'm your Cloudflare AI assistant. How can I help you today?
         </div>
+      </div>
+
+      <div class="typing-indicator" id="typing-indicator">
+        AI is thinking...
       </div>
 
       <div class="message-input">
         <textarea
           id="user-input"
-          placeholder="Ketik pesan..."
+          placeholder="Ask me anything..."
           rows="1"
+          autofocus
         ></textarea>
-        <button id="send-button">➤</button>
+        <button id="send-button" title="Send">➤</button>
       </div>
     </div>
 
-    <footer>© 2025 Cloudflare x Westcon AI Assistant</footer>
+    <footer>© 2025 Cloudflare AI Chat</footer>
 
     <script src="chat.js"></script>
   </body>
