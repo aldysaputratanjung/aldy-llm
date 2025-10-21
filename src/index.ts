@@ -1,91 +1,71 @@
-// DOM elements
-const chatContainer = document.querySelector("#chat-container");
-const inputField = document.querySelector("#user-input");
-const sendButton = document.querySelector("#send-btn");
+/**
+ * Cloudflare Workers AI + AI Gateway (DLP Enabled)
+ */
 
-let chatHistory = [];
+import { Env, ChatMessage } from "./types";
 
-// Append message bubble to chat
-function appendMessage(role, content) {
-  const messageEl = document.createElement("div");
-  messageEl.classList.add("message", role === "user" ? "user" : "assistant");
-  messageEl.textContent = content;
-  chatContainer.appendChild(messageEl);
-  chatContainer.scrollTop = chatContainer.scrollHeight;
-}
+const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
+const SYSTEM_PROMPT =
+  "You are a helpful assistant. Be concise, safe, and avoid sensitive data exposure.";
 
-// Update the assistant’s streaming message
-function updateAssistantMessage(content) {
-  let lastMessage = chatContainer.querySelector(".message.assistant:last-child");
-  if (!lastMessage) {
-    appendMessage("assistant", content);
-  } else {
-    lastMessage.textContent = content;
-  }
-  chatContainer.scrollTop = chatContainer.scrollHeight;
-}
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
 
-// Main send handler
-async function sendMessage() {
-  const userInput = inputField.value.trim();
-  if (!userInput) return;
+    if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
+      return env.ASSETS.fetch(request);
+    }
 
-  appendMessage("user", userInput);
-  inputField.value = "";
+    if (url.pathname === "/api/chat" && request.method === "POST") {
+      return handleChatRequest(request, env);
+    }
 
-  chatHistory.push({ role: "user", content: userInput });
+    return new Response("Not Found", { status: 404 });
+  },
+} satisfies ExportedHandler<Env>;
 
+async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: chatHistory }),
+    const { messages } = (await request.json()) as { messages: ChatMessage[] };
+
+    // Ensure valid chat structure
+    const safeMessages: ChatMessage[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...messages.filter((m) => typeof m.content === "string" && m.content.trim() !== ""),
+    ];
+
+    const aiResponse = await env.AI.run(
+      MODEL_ID,
+      { messages: safeMessages, max_tokens: 512, stream: true },
+      {
+        returnRawResponse: true,
+        gateway: {
+          id: "aldy-llm", // Gateway ID kamu
+          skipCache: true,
+        },
+      },
+    );
+
+    // Return SSE streaming response
+    return new Response(aiResponse.body, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
     });
-
-    const contentType = response.headers.get("content-type") || "";
-
-    // 🟡 Handle DLP or gateway error response
-    if (contentType.includes("application/json")) {
-      const json = await response.json();
-      if (json.error?.length) {
-        const errMsg = json.error[0].message || "Unknown AI Gateway error";
-        appendMessage("system", `⚠️ ${errMsg}`);
-        return;
-      }
-    }
-
-    if (response.body) {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-      let assistantReply = "";
-
-      appendMessage("assistant", ""); // create bubble first
-
-      while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        done = streamDone;
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          assistantReply += chunk;
-          updateAssistantMessage(assistantReply);
-        }
-      }
-
-      chatHistory.push({ role: "assistant", content: assistantReply.trim() });
-    } else {
-      appendMessage("system", "⚠️ No response received from AI Gateway.");
-    }
-  } catch (err) {
-    console.error("Chat error:", err);
-    appendMessage("system", `⚠️ Error: ${err.message}`);
+  } catch (err: any) {
+    console.error("AI Gateway error:", err);
+    return new Response(
+      JSON.stringify({
+        error: [
+          {
+            code: 500,
+            message: `AI Gateway request failed: ${err.message || err}`,
+          },
+        ],
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
   }
 }
-
-// Send on button click
-sendButton.addEventListener("click", sendMessage);
-
-// Send on Enter key
-inputField.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") sendMessage();
-});
