@@ -58,7 +58,6 @@ async function handleChatRequest(request: Request, env: Env): Promise<Response> 
         gateway: {
           id: "aldy-llm", // <-- Ganti dengan Gateway ID milikmu di dashboard AI Gateway
           skipCache: true,
-          metadata: { source: "llm-worker", policy: "dlp-enabled" },
         },
       },
     );
