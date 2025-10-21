@@ -1,86 +1,88 @@
 /**
- * LLM Chat Application Template
+ * LLM Chat Application with AI Gateway + DLP
  *
- * A simple chat application using Cloudflare Workers AI.
- * This template demonstrates how to implement an LLM-powered chat interface with
- * streaming responses using Server-Sent Events (SSE).
+ * This Worker integrates with Cloudflare Workers AI and AI Gateway.
+ * It supports DLP scanning and streaming LLM responses.
  *
  * @license MIT
  */
 import { Env, ChatMessage } from "./types";
 
-// Model ID for Workers AI model
-// https://developers.cloudflare.com/workers-ai/models/
 const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct";
-
-// Default system prompt
 const SYSTEM_PROMPT =
   "You are a helpful, friendly assistant. Provide concise and accurate responses.";
 
+/**
+ * Main Worker handler
+ */
 export default {
-  /**
-   * Main request handler for the Worker
-   */
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext,
-  ): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Handle static assets (frontend)
+    // Serve frontend assets
     if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
       return env.ASSETS.fetch(request);
     }
 
-    // API Routes
-    if (url.pathname === "/api/chat") {
-      // Handle POST requests for chat
-      if (request.method === "POST") {
-        return handleChatRequest(request, env);
-      }
-
-      // Method not allowed for other request types
-      return new Response("Method not allowed", { status: 405 });
+    // Handle chat API
+    if (url.pathname === "/api/chat" && request.method === "POST") {
+      return handleChatRequest(request, env);
     }
 
-    // Handle 404 for unmatched routes
     return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
 
 /**
- * Handles chat API requests
+ * Chat API handler with DLP support via AI Gateway
  */
-async function handleChatRequest(
-  request: Request,
-  env: Env,
-): Promise<Response> {
+async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
-    // Parse JSON request body
-    const { messages = [] } = (await request.json()) as {
-      messages: ChatMessage[];
-    };
+    const { messages = [] } = (await request.json()) as { messages: ChatMessage[] };
 
-    // Add system prompt if not present
+    // Ensure system prompt exists
     if (!messages.some((msg) => msg.role === "system")) {
       messages.unshift({ role: "system", content: SYSTEM_PROMPT });
     }
 
-    const response = await env.AI.run(
+    // Call Workers AI model through AI Gateway (with DLP enabled)
+    const aiResponse = await env.AI.run(
       MODEL_ID,
       {
         messages,
         max_tokens: 1024,
+        stream: true,
       },
       {
         returnRawResponse: true,
-        // Uncomment to use AI Gateway
-         gateway: {
-           id: "aldy-llm", // Replace with your AI Gateway ID
-           skipCache: true,      // Set to true to bypass cache
-        //   cacheTtl: 3600,        // Cache time-to-live in seconds
-         },
+        gateway: {
+          id: "aldy-llm", // <-- Ganti dengan Gateway ID milikmu di dashboard AI Gateway
+          skipCache: true,
+          metadata: { source: "llm-worker", policy: "dlp-enabled" },
+        },
       },
-    ),
-  }satisfies ExportedHandler<Env>;
+    );
+
+    // Stream back the model response (SSE)
+    const { readable, writable } = new TransformStream();
+    aiResponse.body?.pipeTo(writable);
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  } catch (err: any) {
+    console.error("AI Gateway or DLP error:", err);
+
+    return new Response(
+      JSON.stringify({
+        error: "Failed to process request via AI Gateway.",
+        details: err.message || err,
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
+}
